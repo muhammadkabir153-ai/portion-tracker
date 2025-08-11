@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ha">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Portion Tracker - Kayan Miya</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1976d2"/>
+  <style>
+    :root{
+      --bg:#f6f8fb; --card:#ffffff; --muted:#6b7280; --accent:#1976d2;
+      --success:#16a34a;
+    }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:var(--bg); margin:0; padding:18px;}
+    .wrap{max-width:900px;margin:0 auto;}
+    header{display:flex;align-items:center;gap:12px;}
+    h1{margin:0;font-size:20px;}
+    .card{background:var(--card); border-radius:10px; padding:12px; margin-top:14px; box-shadow:0 4px 10px rgba(10,10,10,0.05);}
+    table{width:100%; border-collapse:collapse;}
+    th,td{padding:10px;border-bottom:1px solid #eee;text-align:left;}
+    th{color:var(--muted);font-size:13px;}
+    td.right{text-align:right;}
+    input[type="number"]{width:100px;padding:6px;border-radius:6px;border:1px solid #ddd;}
+    .btn{background:var(--accent); color:#fff; border:none; padding:8px 10px; border-radius:6px; cursor:pointer;}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+    .small{padding:6px 8px;font-size:13px;border-radius:6px;}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+    .totals{display:flex;gap:16px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+    .tot-card{background:#f3f6fb;padding:10px;border-radius:8px;}
+    .actions {display:flex;gap:8px;flex-wrap:wrap;}
+    .price-edit{width:90px;}
+    .pill{background:#eef6ff;color:var(--accent);padding:6px 8px;border-radius:999px;font-weight:600;}
+    footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center;}
+    @media (max-width:600px){ input[type="number"]{width:72px} td:nth-child(1){width:120px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Portion Tracker — Kayan Miya</h1>
+      <div style="margin-left:auto"><span class="pill">Offline-ready</span></div>
+    </header>
+
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input id="newName" type="text" placeholder="Sunan kaya (mis. Attaruhu)"/>
+        <input id="newPrice" type="number" placeholder="Farashin portion (₦)" min="0" step="1"/>
+        <button id="addBtn" class="btn">Add Item</button>
+        <div style="margin-left:auto" class="actions">
+          <button id="exportCsv" class="btn small">Export CSV</button>
+          <button id="resetBtn" class="btn ghost small">Reset Counts</button>
+        </div>
+      </div>
+
+      <table id="itemsTable" style="margin-top:12px;">
+        <thead>
+          <tr>
+            <th>Kaya</th>
+            <th>Farashin (₦)</th>
+            <th>Portions</th>
+            <th class="right">Total Sales (₦)</th>
+            <th class="right">Profit (₦)</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="totals">
+        <div class="tot-card">Total Portions: <strong id="totalQty">0</strong></div>
+        <div class="tot-card">Total Sales: <strong id="totalSales">₦0</strong></div>
+        <div class="tot-card">Total Profit: <strong id="totalProfit">₦0</strong></div>
+      </div>
+    </div>
+
+    <footer>
+      <div>Save will be automatic (localStorage). Don Allah, ka duba 'Export CSV' don ajiyar waje.</div>
+    </footer>
+  </div>
+
+<script>
+/*
+  PWA Portion Tracker logic
+  - uses localStorage key "portion_items_v1"
+  - default items preloaded (you can edit or remove)
+*/
+
+const STORAGE_KEY = 'portion_items_v1';
+
+const defaultItems = [
+  { name: 'Attaruhu', purchasePrice: 1000, portionPrice: 50, qty: 0 },
+  { name: 'Tumatur', purchasePrice: 1000, portionPrice: 150, qty: 0 },
+  { name: 'Tattasai', purchasePrice: 1500, portionPrice: 100, qty: 0 },
+  { name: 'Albasa me laushi', purchasePrice: 500, portionPrice: 50, qty: 0 },
+  { name: 'Albasa', purchasePrice: 500, portionPrice: 50, qty: 0 },
+  { name: 'Latas', purchasePrice: 500, portionPrice: 50, qty: 0 },
+  { name: 'Alayyahu', purchasePrice: 300, portionPrice: 50, qty: 0 },
+  { name: 'Spices Mix', purchasePrice: 400, portionPrice: 50, qty: 0 }
+];
+
+let items = loadItems();
+
+function loadItems(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      return JSON.parse(raw);
+    }
+  }catch(e){}
+  // first time
+  return JSON.parse(JSON.stringify(defaultItems));
+}
+
+function saveItems(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  }catch(e){
+    console.error('save failed', e);
+  }
+}
+
+function currency(n){
+  return '₦' + Number(n || 0).toLocaleString();
+}
+
+function render(){
+  const tbody = document.querySelector('#itemsTable tbody');
+  tbody.innerHTML = '';
+  items.forEach((it, idx) => {
+    const totalSales = it.qty * it.portionPrice;
+    const profit = it.qty * (it.portionPrice - (it.purchasePrice || 0));
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(it.name)}</td>
+      <td>
+         <input class="price-edit" data-idx="${idx}" type="number" value="${it.portionPrice}" min="0" step="1"/>
+         <div style="color:var(--muted);font-size:12px">cost ₦${it.purchasePrice || 0}</div>
+      </td>
+      <td>
+         <div style="display:flex;align-items:center;gap:8px">
+           <button class="small" data-action="minus" data-idx="${idx}">-</button>
+           <strong id="qty-${idx}">${it.qty}</strong>
+           <button class="small" data-action="plus" data-idx="${idx}">+</button>
+         </div>
+      </td>
+      <td class="right">${currency(totalSales)}</td>
+      <td class="right">${currency(profit)}</td>
+      <td class="right">
+         <button class="small" data-action="editCost" data-idx="${idx}">Edit Cost</button>
+         <button class="small" data-action="delete" data-idx="${idx}">Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // attach listeners
+  document.querySelectorAll('button[data-action]').forEach(b=>{
+    b.onclick = onActionClick;
+  });
+  document.querySelectorAll('.price-edit').forEach(inp=>{
+    inp.onchange = onPriceChange;
+    inp.onblur = onPriceChange;
+  });
+
+  updateTotals();
+  saveItems();
+}
+
+function onPriceChange(e){
+  const idx = Number(e.target.dataset.idx);
+  const v = Number(e.target.value) || 0;
+  items[idx].portionPrice = Math.round(v);
+  saveItems();
+  render();
+}
+
+function onActionClick(e){
+  const idx = Number(e.target.dataset.idx);
+  const action = e.target.dataset.action;
+  if(action === 'plus') {
+    items[idx].qty = (items[idx].qty||0) + 1;
+    render();
+  } else if(action === 'minus'){
+    items[idx].qty = Math.max(0,(items[idx].qty||0) - 1);
+    render();
+  } else if(action === 'delete'){
+    if(confirm('Gaskiya za ka goge wannan kaya?')) {
+      items.splice(idx,1);
+      render();
+    }
+  } else if(action === 'editCost'){
+    const newCost = prompt('Shigar da farashin siye (purchase cost) na wannan kaya (₦):', items[idx].purchasePrice || 0);
+    if(newCost !== null){
+      const v = Math.round(Number(newCost) || 0);
+      items[idx].purchasePrice = v;
+      render();
+    }
+  }
+}
+
+function updateTotals(){
+  const tot = items.reduce((acc,it)=>{
+    acc.qty += (it.qty||0);
+    acc.sales += (it.qty||0) * it.portionPrice;
+    acc.profit += (it.qty||0) * (it.portionPrice - (it.purchasePrice||0));
+    return acc;
+  }, {qty:0,sales:0,profit:0});
+  document.getElementById('totalQty').textContent = tot.qty;
+  document.getElementById('totalSales').textContent = currency(tot.sales);
+  document.getElementById('totalProfit').textContent = currency(tot.profit);
+}
+
+// helpers
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":\"&#39;\"})[c]); }
+
+document.getElementById('addBtn').onclick = ()=>{
+  const name = document.getElementById('newName').value.trim();
+  const price = Math.round(Number(document.getElementById('newPrice').value) || 0);
+  if(!name || price <= 0){ alert('Don Allah ka saka suna da farashi (ƙasa da 1 ba zai yi).'); return; }
+  items.push({name, purchasePrice: 0, portionPrice: price, qty:0});
+  document.getElementById('newName').value=''; document.getElementById('newPrice').value='';
+  render();
+};
+
+document.getElementById('resetBtn').onclick = ()=>{
+  if(!confirm('Za ka zaɓi reset duk adadin portions zuwa 0?')) return;
+  items.forEach(it=> it.qty = 0);
+  render();
+};
+
+document.getElementById('exportCsv').onclick = ()=>{
+  const rows = [['name', 'purchasePrice', 'portionPrice', 'qty', 'totalSales', 'profit']];
+  items.forEach(it=>{
+    const total = (it.qty||0) * it.portionPrice;
+    const profit = (it.qty||0) * (it.portionPrice - (it.purchasePrice||0));
+    rows.push([it.name, it.purchasePrice, it.portionPrice, it.qty||0, total, profit]);
+  });
+  const csv = rows.map(r => r.map(c => '\"'+String(c).replace(/\"/g,'\"\"')+'\"').join(',')).join('\\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'portion_export_' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+};
+
+// initial render
+render();
+
+// service worker registration (optional, silent fail if not allowed)
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(()=> {
+    console.log('SW registered');
+  }).catch(()=>{ /* ignore */ });
+}
+</script>
+</body>
+</html>
